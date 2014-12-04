@@ -1,0 +1,68 @@
+Installation instructions
+
+Copyright (C) 1999 Jukka Zitting <jukka.zitting@iki.fi>
+Copyright (C) 2000 The Midgard Project ry
+See the end for copying conditions.
+
+These are the installation instructions for the Midgard library. The
+library allows Midgard applications to access the Midgard database.
+
+The library uses the GNU configure system for configuration and
+installation. To install, run:
+
+ $ ./configure
+ $ make
+ # make install
+
+The Midgard core library depends on quite a few other libraries. See
+the below options for documentation on how to tell the configure script
+how to find the required dependencies.
+
+  --with-mysql-config=/path/to/mysql_config
+                          The mysql_config program is used to set up
+                          the include and library options required
+                          by the MySQL dependency. Unless you specify
+                          the mysql_config location explicity, then
+                          the current PATH is searched for the program.
+
+If you are building midgard-lib as a shared library (highly
+recommended), make sure to update your environment so it can be found.
+For many UNIX-alike systems, this means adding it to LD_LIBRARY_PATH
+for the program depending on it. For GNU/Linux systems (maybe others,
+let me know) you can add it to /etc/ld.so.conf, and run ldconfig.
+You will need to do this before you build the other components, since
+they depend on midgard-lib.
+
+----------------------------------------------------------------------
+Platform notes:
+
+** Solaris
+You need gnu make to build apache. Everywhere the documentation says
+'make ...' you should probably use 'MAKE=gmake gmake ...'.
+
+Also, midgard-lib calls 'assert' at various places. Yes, I know, we
+should remove those at some point. Anyhow, for the time being, if
+you're using gcc to compile all this, you'll probably come up short on
+__eprintf. This can be found in libgcc.a, you'll have to extract
+_eprintf.o and link it into apache. If someone knows how to fix this
+in a more convenient way, let us know.
+----------------------------------------------------------------------
+Copyright information:
+
+Copyright (C) 1999 Jukka Zitting <jukka.zitting@iki.fi>
+Copyright (C) 2000 The Midgard Project ry
+
+   Permission is granted to anyone to make or distribute verbatim copies
+   of this document as received, in any medium, provided that the
+   copyright notice and this permission notice are preserved,
+   thus giving the recipient permission to redistribute in turn.
+
+   Permission is granted to distribute modified versions
+   of this document, or of portions of it,
+   under the above conditions, provided also that they
+   carry prominent notices stating who last changed them.
+^L
+Local variables:
+version-control: never
+mode: indented-text
+end:

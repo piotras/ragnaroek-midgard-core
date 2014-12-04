@@ -1,0 +1,56 @@
+Source: midgard-core
+Section: libs
+Priority: optional
+Maintainer:  Piotr Pokora <piotrek.pokora@gmail.com>
+Uploaders: 
+Standards-Version: 3.2.1
+Build-Depends: debhelper (>=3), libglib2.0-dev (>=2.4.7),  zlib1g-dev (>=1.1.3), libmysqlclient15-dev | libmysqlclient16-dev | libmysqlclient-dev, perl, autotools-dev, flex, libxml2-dev (>=2.6.11), fakeroot, libpam0g-dev, libdbus-glib-1-dev  
+
+Package: libmidgard8.9
+Section: libs
+Architecture: NOTSET
+Depends: libglib2.0-0 (>=2.4), zlib1g, libmysqlclient15off | libmysqlclient16 | libmysqlclient18 , libxml2 (>=2.6.11), libdbus-glib-1-2, dbus 
+Conflicts: libmidgard3 , libmidgard5
+Replaces: libmidgard9
+Suggests: mysql-server-5.0 (>=5.0) | mysql-server-5.1
+Description: Midgard Content Management System - Runtime Library
+ .
+ Midgard is a capable open source content management system for running 
+ mid-to-high-end websites. In addition to the built-in content management 
+ features, Midgard also provides a highly object-oriented component 
+ architecture for building interactive web applications that integrate 
+ seamlessly with the website. 
+ .
+ Midgard can run almost any kind of website. From personal blogs to 
+ corporate intranets and multilingual groups of websites. 
+
+Package: libmidgard8.9-dev
+Section: devel
+Architecture: NOTSET
+Depends: libmidgard8.9 (>= ${source:Version})
+Conflicts: libmidgard3-dev, libmidgard5-dev
+Replaces: libmidgard9-dev
+Description: Midgard Content Management System - Development Files
+ This package is required only if you are a developer and intend to build
+ extensions for Midgard. It contains the header files and static library.
+ .
+ Midgard is a capable open source content management system for running
+ mid-to-high-end websites. In addition to the built-in content management
+ features, Midgard also provides a highly object-oriented component
+ architecture for building interactive web applications that integrate
+ seamlessly with the website.
+
+Package: midgard-common
+Section: utils
+Architecture: NOTSET
+Depends: libmidgard8.9 (>= ${source:Version})
+Description: Midgard common files used by different midgard extensions
+ .
+ Midgard is a capable open source content management system for running 
+ mid-to-high-end websites. In addition to the built-in content management 
+ features, Midgard also provides a highly object-oriented component 
+ architecture for building interactive web applications that integrate 
+ seamlessly with the website
+ .
+ This package contains command line tools, manuals, authentication and 
+ configuration files.

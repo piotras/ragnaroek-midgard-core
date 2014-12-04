@@ -1,0 +1,24 @@
+
+#define MIDGARD_LIB_PREFIX "@prefix@"
+#define MIDGARD_GLOBAL_SCHEMA "@prefix@/share/midgard/MgdObjects.xml"
+
+/* Define directory path where all 'local' schemas are stored.
+ * Global schema is basic midgard schema , while local ones are defined 
+ * per virtual host or per application.
+*/ 
+#define MIDGARD_LSCHEMA_DIR "@prefix@/share/midgard/schema"
+#define MIDGARD_SHARE_DIR "@prefix@/share/midgard" 
+#define MIDGARD_PARSER_HACK_EVAL @MIDGARD_PARSER_HACK_EVAL@
+#define MIDGARD_PARSER_DEBUG @MIDGARD_PARSER_DEBUG@
+#define HAVE_CACHE_FIX @USE_CACHE_FIX@
+#define HAVE_MIDGARD_MULTILANG @USE_MIDGARD_MULTILANG@
+#define HAVE_MIDGARD_PAGE_OWNER @USE_MIDGARD_PAGE_OWNER@
+#define HAVE_MIDGARD_VC @USE_MIDGARD_VC@
+#define HAVE_MIDGARD_QUOTA @USE_MIDGARD_QUOTA@
+#define HAVE_MIDGARD_PAGELINKS @USE_MIDGARD_PAGELINKS@
+#define MIDGARD_PREPARSER_FUDGE_ARRAYS @USE_MIDGARD_PREPARSER_FUDGE_ARRAYS@
+#define MIDGARD_PHP_REQUEST_CONFIG_BUG_WORKAROUND @MIDGARD_PHP_REQUEST_CONFIG_BUG_WORKAROUND@
+#define MIDGARD_DBUS_SUPPORT @MIDGARD_DBUS_SUPPORT@
+
+#define MIDGARD_LIB_VERSION "@VERSION@" 
+#define MIDGARD_LIB_VERSION_STRING "@VERSION_STRING@"

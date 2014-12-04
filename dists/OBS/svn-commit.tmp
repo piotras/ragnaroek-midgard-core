@@ -1,0 +1,4 @@
+Added libmysqlclient-dev as build dependency
+--Ta linia i następne zostaną zignorowane--
+
+M    debian.control

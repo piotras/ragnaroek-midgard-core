@@ -1,0 +1,5 @@
+usr/include/midgard/*.h
+usr/lib/libmidgard.so
+usr/lib/libmidgard.la
+usr/lib/libmidgard.a
+usr/lib/pkgconfig/midgard.pc

@@ -1,0 +1,811 @@
+/* 
+ * Copyright (c) 2005 Jukka Zitting <jz@yukatan.fi>
+ * Copyright (C) 2006, 2007 Piotr Pokora <piotrek.pokora@gmail.com>
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published
+ * by the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+
+#include <config.h>
+#include "midgard/midgard_schema.h"
+#include "midgard/midgard_legacy.h"
+#include "midgard_core_query_builder.h"
+#include "midgard/query_builder.h"
+#include "query_constraint.h"
+#include "simple_constraint.h"
+#include "group_constraint.h"
+#include "query_order.h"
+#include "midgard/midgard_object_property.h"
+#include "midgard/midgard_object.h"
+#include "schema.h"
+#include "midgard/midgard_reflection_property.h"
+#include "midgard_mysql.h"
+#include "midgard_core_object_class.h"
+#include "midgard/midgard_metadata.h"
+
+#define _RESERVED_BLOB_NAME "attachment"
+#define _RESERVED_BLOB_TABLE "blobs"
+#define _RESERVED_PARAM_NAME "parameter"
+#define _RESERVED_PARAM_TABLE "record_extension"
+
+gboolean _midgard_core_qb_is_multilingual(MidgardQueryBuilder *builder);
+
+MidgardQueryBuilderPrivate *midgard_query_builder_private_new(void)
+{
+	MidgardQueryBuilderPrivate *mqbp = 
+		g_new(MidgardQueryBuilderPrivate, 1);
+
+	mqbp->constraints = NULL;
+	mqbp->groups = NULL;
+	mqbp->orders = NULL;
+
+	mqbp->tables = g_hash_table_new_full(g_str_hash, g_str_equal,
+			g_free, NULL);
+
+	mqbp->value = NULL;
+	mqbp->is_grouping = FALSE;
+	mqbp->grouping_ref = 0;
+	mqbp->group_constraint = NULL;
+	mqbp->joins = NULL;
+
+	return mqbp;
+}
+
+void midgard_query_builder_private_free(MidgardQueryBuilderPrivate *mqbp)
+{
+	g_assert(mqbp != NULL);
+
+	GSList *list = NULL;
+
+	/* free constraints */
+	for(list = mqbp->constraints; list != NULL; list = list->next) {
+		g_object_unref(list->data);
+	}
+	if(list)
+		g_slist_free(list);
+	list = NULL;
+
+	/* free groups */
+	for(list = mqbp->groups; list != NULL; list = list->next) {
+		g_object_unref(list->data);
+	}
+	if(list)
+		g_slist_free(list);
+	list = NULL;
+
+	/* free orders */
+	for(list = mqbp->orders; list != NULL; list = list->next) {
+		midgard_core_query_order_free((MidgardQueryOrder *)list->data);
+	}
+	if(list)
+		g_slist_free(list);
+	list = NULL;
+
+	for(list = mqbp->joins; list != NULL; list = list->next) {
+		midgard_query_constraint_private_free((MidgardQueryConstraintPrivate*) list->data);
+	}
+	if(list)
+		g_slist_free(list);
+	list = NULL;
+
+	/* free tables */
+	g_hash_table_destroy(mqbp->tables);
+
+	g_free(mqbp);
+}
+
+void _midgard_core_qb_add_table(MidgardQueryBuilder *builder, const gchar *table)
+{
+	g_assert(builder != NULL);
+	g_assert(table != NULL);
+
+	g_hash_table_insert(builder->priv->tables, g_strdup((gchar *) table), NULL);
+
+	return ;
+}
+
+void _midgard_core_qb_add_constraint(MidgardQueryBuilder *builder,
+		MidgardQueryConstraint *constraint)
+{
+	g_assert(builder != NULL);
+	g_assert(constraint != NULL);
+
+	builder->priv->constraints = 
+		g_slist_append(builder->priv->constraints, constraint);	
+}
+
+void _midgard_core_qb_add_order(MidgardQueryBuilder *builder,
+		MidgardQueryOrder *order)
+{
+	g_assert(builder != NULL);
+	g_assert(order != NULL);
+
+	builder->priv->orders = 
+		g_slist_append(builder->priv->orders, order);	
+}
+
+typedef struct {
+	MidgardQueryBuilder *builder;
+	GSList **list;
+} MgdLH;
+
+static void _add_table_foreach(gpointer key, gpointer value, gpointer userdata)
+{
+	MgdLH *lh = (MgdLH *) userdata;
+	MidgardQueryBuilder *builder = lh->builder;
+	GSList **list = lh->list;
+	gchar *table = (gchar *) key;
+	gchar *new_table = NULL;	
+
+	*list = g_slist_append(*list, g_strdup (table));
+}
+
+gboolean _midgard_core_qb_is_multilingual(MidgardQueryBuilder *builder)
+{
+	MidgardObjectClass *klass = (MidgardObjectClass*)g_type_class_peek(builder->priv->type);
+	
+	if(!midgard_object_class_is_multilang(klass))
+		return FALSE;
+	
+	if(builder->priv->unset_lang)
+		return FALSE;
+	
+	if(mgd_lang(builder->priv->mgd) == mgd_get_default_lang(builder->priv->mgd))
+		return FALSE;
+	
+	if(builder->priv->lang < 0)
+		return TRUE;
+	
+	return FALSE;
+}
+
+static void __sql_add_constraints(GString *sql, MidgardQueryBuilder *builder)
+{
+	GSList *clist = NULL;
+	GSList *jlist = NULL;
+	guint j = 0;
+	
+	for(clist = builder->priv->constraints;
+			clist != NULL; clist = clist->next) {
+		
+		if(j > 0)
+			g_string_append(sql, " AND ");
+		
+		g_string_append(sql,
+				MIDGARD_QUERY_CONSTRAINT(clist->data)->priv->condition);
+		
+		for(jlist = ((MidgardQueryConstraint*)clist->data)->priv->joins;
+				jlist != NULL; jlist = jlist->next) {
+
+			g_string_append(sql, " AND ");
+			g_string_append(sql,
+					((MidgardQueryConstraintPrivate*)jlist->data)->condition);
+		}
+		
+		j++;
+	}
+	
+	if (builder->priv->constraints == NULL)
+		g_string_append(sql, "1=1"); 
+}
+
+gchar *_midgard_core_qb_get_sql(MidgardQueryBuilder *builder, guint mode, gchar *select, gboolean order_workaround)
+{
+	g_assert(builder);
+        g_assert(builder->priv->schema->table);    
+        
+        /* FIXME, error reporting needed */
+        if(builder->priv->error != 0) {
+		g_warning("Can not create query");
+		return NULL;
+        }
+       
+	gboolean multilang_fallback = _midgard_core_qb_is_multilingual(builder);
+	gboolean unset_lang = builder->priv->unset_lang;
+	midgard *mgd = builder->priv->mgd;
+
+	/* SELECT */
+        GString *sql = g_string_new("SELECT ");
+	g_string_append(sql, select);
+	g_free(select);
+        
+	/* FROM */
+        g_string_append(sql, " FROM ");
+	GSList *tlist = NULL;
+	MgdLH lh = {NULL, };
+	lh.builder = builder;
+	lh.list = &tlist;
+	g_hash_table_foreach(builder->priv->tables, _add_table_foreach, &lh);
+
+	GString *tables = g_string_new("");
+
+	guint l = 0;
+	GSList *nlist; 
+	for(nlist = tlist; nlist != NULL; nlist = nlist->next) {
+	
+		if(l < 1)
+			g_string_append(tables, (gchar *) nlist->data);
+		else 
+			g_string_append_printf(tables, 
+					", %s", (gchar *) nlist->data);
+		l++;
+	}
+	if(tlist) {
+		g_slist_foreach(tlist, (GFunc)g_free, NULL);
+		g_slist_free(tlist);
+	}
+
+	g_string_append(sql, tables->str);
+
+	/* WHERE */
+        g_string_append(sql, " WHERE ");
+	
+	GSList *clist = NULL;
+	GSList *jlist = NULL;
+	gboolean constraints_added = FALSE; /* We need this one to know if to add extra "AND" before ML fallback and groups */
+
+	for (clist = builder->priv->constraints; 
+			clist != NULL; clist = clist->next) {
+	
+		if (constraints_added)
+			g_string_append(sql, " AND ");
+
+		g_string_append(sql, 
+				MIDGARD_QUERY_CONSTRAINT(clist->data)->priv->condition);
+
+		for (jlist = ((MidgardQueryConstraint*)clist->data)->priv->joins; 
+				jlist != NULL; jlist = jlist->next) {
+
+			g_string_append(sql, " AND ");
+			g_string_append(sql, 
+					((MidgardQueryConstraintPrivate*)jlist->data)->condition);
+		}
+
+		constraints_added = TRUE;
+	}
+
+	if (builder->priv->constraints == NULL && builder->priv->groups == NULL) {
+		g_string_append(sql, "1=1");
+		constraints_added = TRUE;
+	}
+
+	g_string_free(tables, TRUE);
+
+	/* OR&AND groupings */
+	guint i = 0;
+	builder->priv->groups = g_slist_reverse(builder->priv->groups);
+	if(builder->priv->groups != NULL) {
+	
+		if (constraints_added)
+			g_string_append(sql, " AND ");
+
+		GSList *glist = NULL;
+		MidgardGroupConstraintClass *klass;
+
+		for(glist = builder->priv->groups; 
+				glist != NULL; glist = glist->next) {
+		
+			if(i > 0)
+				g_string_append(sql, " AND ");
+
+			klass = MIDGARD_GROUP_CONSTRAINT_GET_CLASS(
+					MIDGARD_GROUP_CONSTRAINT(glist->data));
+			klass->add_sql(MIDGARD_GROUP_CONSTRAINT(glist->data), sql);
+
+			i++;
+		}
+	}
+
+	/* Join tables from ORDER BY */
+	GSList *olist = NULL;
+	jlist = NULL;
+	i = 0;
+	if(builder->priv->orders != NULL) {
+
+		for(olist = builder->priv->orders;
+				olist != NULL; olist = olist->next) {
+		
+			for(jlist = ((MidgardQueryOrder*)olist->data)->constraint->priv->joins;
+					jlist != NULL; jlist = jlist->next) {
+				
+				g_string_append(sql, " AND ");				
+				g_string_append(sql,
+						((MidgardQueryConstraintPrivate*)jlist->data)->condition);                
+			}
+			i++;
+		}
+	}
+
+	/* Add joins */
+	if(builder->priv->joins != NULL) {
+
+		for(jlist = builder->priv->joins;
+				jlist != NULL; jlist = jlist->next) {
+			
+			g_string_append(sql, " AND ");				
+			g_string_append(sql,
+					((MidgardQueryConstraintPrivate*)jlist->data)->condition);                
+			}
+		i++;
+	}
+
+        if (builder->priv->schema->use_lang == 1) {
+                
+		g_string_append(sql, " AND ");
+                g_string_append(sql, builder->priv->schema->table);
+                g_string_append(sql, ".id=");
+                g_string_append(sql, builder->priv->schema->table);
+                g_string_append(sql, "_i.sid");  
+               
+		if(!builder->priv->unset_lang
+				&& ( builder->priv->lang >= 0
+					|| (mgd_lang(builder->priv->mgd) == mgd_get_default_lang(builder->priv->mgd)))){
+			
+			g_string_append(sql, " AND ");
+			g_string_append(sql, builder->priv->schema->table);
+			g_string_append_printf(sql,
+					"_i.lang = %d ",
+					builder->priv->lang > -1 ? builder->priv->lang : mgd_lang(builder->priv->mgd));
+		}
+        }           
+
+        if (!mgd_isroot(builder->priv->mgd)) {
+                g_string_append(sql, " AND ");
+                g_string_append(sql, builder->priv->schema->table);
+                g_string_append_printf(
+                        sql, ".sitegroup IN (0, %u)",
+                        builder->priv->mgd->current_user->sitegroup);
+        }
+
+	if(!builder->priv->include_deleted) {
+		g_string_append(sql, " AND ");
+		g_string_append_printf(sql,
+				" %s.metadata_deleted = 0",
+				builder->priv->schema->table);
+	}
+
+	if (multilang_fallback && !unset_lang)
+		g_string_append_printf (sql, " AND %s_i.lang IN (%d, %d) ",
+				builder->priv->schema->table,
+				mgd_lang (builder->priv->mgd), mgd_get_default_lang (builder->priv->mgd));
+
+	/* ORDER BY */
+	olist = NULL;
+	i = 0;
+	gboolean add_coma = FALSE;
+	const gchar *multilang_order = "ASC";
+
+	if (multilang_fallback && !unset_lang) {
+               if (mgd_lang (mgd) > mgd_get_default_lang (mgd))
+	                        multilang_order = "DESC";
+	}
+
+	/* Workaround for ORDER with ML fallback */
+	GString *order_str = g_string_new("");
+	gboolean second_order = FALSE;	
+	if(builder->priv->orders != NULL) {	
+	
+		for(olist = builder->priv->orders; 
+				olist != NULL; olist = olist->next) {
+
+			if(add_coma) 
+				g_string_append(order_str, ", ");
+		
+			MidgardQueryOrder *order = (MidgardQueryOrder *)olist->data;
+
+			gchar *tmp = midgard_core_query_order_get_property_sql(order);
+			g_string_append(order_str, tmp);
+			second_order = TRUE;
+			g_free(tmp);
+
+			add_coma = TRUE;
+		}
+	}
+
+	olist = NULL;
+	i = 0;
+	add_coma = FALSE;
+<<<<<<< .mine
+	if (multilang_fallback && !unset_lang) {
+		g_string_append_printf(sql, " ORDER BY lang %s", multilang_order);
+	}
+	
+	/*if(builder->priv->orders != NULL) {
+=======
+	if (multilang_fallback && !unset_lang) {
+		g_string_append_printf(sql, " ORDER BY lang %s", multilang_order);
+	} else if(builder->priv->orders != NULL) {
+>>>>>>> .r27305
+		
+		g_string_append(sql, " ORDER BY ");
+	
+		for(olist = builder->priv->orders; 
+				olist != NULL; olist = olist->next) {
+
+			if(add_coma) 
+				g_string_append(sql, ", ");
+		
+			MidgardQueryOrder *order = 
+				(MidgardQueryOrder *)olist->data;
+			g_string_append(sql,
+					midgard_core_query_order_get_sql(order));
+
+			add_coma = TRUE;
+		}
+	}*/
+
+	if (!multilang_fallback) {
+		if (mode < MQB_SELECT_COUNT && builder->priv->limit != G_MAXUINT) 
+			g_string_append_printf(sql, " LIMIT %u", builder->priv->limit);
+		
+		if (builder->priv->offset != 0) 
+			g_string_append_printf(sql, " OFFSET %u", builder->priv->offset);
+	}
+
+<<<<<<< .mine
+=======
+	if (!multilang_fallback || unset_lang) {
+		if (mode < MQB_SELECT_COUNT && builder->priv->limit != G_MAXUINT) 
+			g_string_append_printf(sql, " LIMIT %u", builder->priv->limit);
+		
+		if (builder->priv->offset != 0) 
+			g_string_append_printf(sql, " OFFSET %u", builder->priv->offset);
+	}
+
+>>>>>>> .r27305
+	if (multilang_fallback && !unset_lang) {
+		GString *ml_string = g_string_new ("SELECT * FROM ( ");
+		g_string_append (ml_string, sql->str);
+		g_string_free (sql, TRUE);
+		g_string_append (ml_string, ") tmp1 GROUP BY sid");
+		if (second_order == TRUE && order_workaround == TRUE) 
+			g_string_append_printf (ml_string, " ORDER BY %s", order_str->str);
+
+		if (mode < MQB_SELECT_COUNT && builder->priv->limit != G_MAXUINT)
+			g_string_append_printf(ml_string, " LIMIT %u", builder->priv->limit);  
+                
+                if (builder->priv->offset != 0)
+			g_string_append_printf(ml_string, " OFFSET %u", builder->priv->offset);
+
+		g_string_free(order_str, TRUE);
+		return g_string_free (ml_string, FALSE);
+	}
+
+	g_string_free (order_str, TRUE);
+
+        return g_string_free (sql, FALSE);
+}
+
+gchar * _midgard_core_qb_get_sql_as(
+		MidgardQueryBuilder *builder, const gchar *name)
+{
+	g_assert(builder != NULL);
+	g_assert(name != NULL);
+
+	g_warning("FIXME, it's not supported");
+
+	return NULL;
+}
+
+static void __join_reference(MidgardQueryBuilder *builder, const gchar *src_table, const gchar *ref_table)
+{
+	/* Join guid and parent_guid */
+	MidgardQueryConstraint *jc = midgard_query_constraint_new();
+	GString *jstr = g_string_new("");
+	g_string_append_printf(jstr,"%s.parent_guid = %s.guid", 
+			ref_table, src_table);
+	jc->priv->condition = g_strdup(jstr->str);
+	g_string_free(jstr, TRUE);
+	
+	_midgard_core_qb_add_constraint(builder,jc);
+
+	/* limit to records which are not deleted */
+	MidgardQueryConstraint *dc = midgard_query_constraint_new();
+	GString *dstr = g_string_new("");
+	g_string_append_printf(dstr,"%s.metadata_deleted = 0", ref_table);
+	dc->priv->condition = g_strdup(dstr->str);
+	g_string_free(dstr, TRUE);
+	
+	_midgard_core_qb_add_constraint(builder,dc);
+
+	return;
+}
+
+static gboolean __add_join(GSList **list, MidgardQueryConstraintPrivate *mqcp)
+{
+	GSList *clist = NULL;
+	gboolean exists = FALSE;
+
+	if(mqcp->condition == NULL)
+		return exists;
+
+	for(clist = *list; clist != NULL; clist = clist->next) {
+	
+		if(((MidgardQueryConstraintPrivate *)clist->data)->condition == NULL) 
+			continue;
+
+		if(g_str_equal(((MidgardQueryConstraintPrivate *)clist->data)->condition, mqcp->condition))
+			exists = TRUE;
+	}
+
+	if(!exists) {
+		*list = g_slist_append(*list, mqcp);
+		return TRUE;
+	}
+
+	return FALSE;
+}
+
+static gboolean __set_schema_property_attr(
+		MidgardQueryBuilder *builder, MidgardObjectClass **klass, 
+		MidgardQueryConstraint **constraint, const gchar *name, gboolean do_link)
+{
+	MgdSchemaPropertyAttr *attr = NULL;
+	const gchar *target_property = NULL;
+	const gchar *link_property = NULL;
+	gboolean is_link = FALSE;
+	MidgardObjectClass *lclass = NULL;
+
+	/*
+	GParamSpec *pspec = 
+		g_object_class_find_property(G_OBJECT_CLASS(*klass), name);
+
+	if(!pspec) {
+
+		g_warning("%s is not registered property of %s class",
+				name, G_OBJECT_CLASS_NAME(*klass)); 
+		return FALSE;
+	}*/
+
+	/* Set klass and property so later we use this info when 
+	 * gvalue typecasting should be done */
+	(*constraint)->priv->klass = G_OBJECT_CLASS(*klass);
+	(*constraint)->priv->property = name;
+	//(*constraint)->priv->pspec = pspec;
+
+	/* Reserved properties */
+	if(g_str_equal("metadata", name)) {
+		
+		*klass = g_type_class_peek(MIDGARD_TYPE_METADATA);
+		return TRUE;
+	} 
+	
+	if(g_str_equal(_RESERVED_BLOB_NAME, name)) {
+
+		__join_reference(builder, (const gchar *)(*constraint)->priv->current->table, _RESERVED_BLOB_TABLE);
+
+		*klass = 
+			g_type_class_peek(g_type_from_name("midgard_attachment"));
+		(*constraint)->priv->current->table = _RESERVED_BLOB_TABLE;
+		
+		return TRUE;
+	
+	} else 	if(g_str_equal(_RESERVED_PARAM_NAME, name)) {
+	
+		__join_reference(builder, (const gchar *)(*constraint)->priv->current->table, _RESERVED_PARAM_TABLE);
+
+		*klass = 
+			g_type_class_peek(g_type_from_name("midgard_parameter"));
+		(*constraint)->priv->current->table = _RESERVED_PARAM_TABLE;
+		
+		return TRUE;
+	
+	/* User defined properties */
+	} else {
+
+		GParamSpec *pspec = 
+			g_object_class_find_property(G_OBJECT_CLASS(*klass), name);
+		
+		if(!pspec) {
+			
+			g_warning("%s is not registered property of %s class",
+					name, G_OBJECT_CLASS_NAME(*klass)); 
+			return FALSE;
+		}
+		
+		/* Set klass and property so later we use this info when 
+		 * * gvalue typecasting should be done */
+		(*constraint)->priv->klass = G_OBJECT_CLASS(*klass);
+		(*constraint)->priv->property = name;
+		(*constraint)->priv->pspec = pspec;
+
+		attr = _midgard_core_class_get_property_attr(
+				G_OBJECT_CLASS(*klass), name);
+
+		target_property = NULL;
+		link_property = NULL;
+		is_link = FALSE;
+
+		MidgardReflectionProperty *mrp =
+			midgard_reflection_property_new(*klass);
+		
+		if(midgard_reflection_property_is_link(mrp, name) && do_link) {
+
+			const gchar *target_property = 
+				midgard_reflection_property_get_link_target(mrp, name);
+			const gchar *link_klass = 
+				midgard_reflection_property_get_link_name(mrp, name);
+			gboolean is_link = TRUE;
+
+			if((*constraint)->priv->current->link_target == NULL) {
+				
+				MidgardQueryConstraintPrivate *mqcp =
+					midgard_query_constraint_private_new();
+
+				mqcp->current->is_link = is_link;
+				mqcp->current->link_target = target_property;
+				mqcp->condition_operator = g_strdup("=");
+
+				mqcp->prop_left->table = 
+					midgard_object_class_get_property_table(*klass, name);
+				mqcp->prop_left->field = 
+					midgard_object_class_get_property_field(*klass, name);
+
+				lclass = g_type_class_peek(g_type_from_name(link_klass));
+				mqcp->prop_right->table = 
+					midgard_object_class_get_property_table(
+							lclass, target_property);
+				mqcp->prop_right->field = 
+					midgard_object_class_get_property_field(
+							lclass, target_property);
+
+				GString *cond = g_string_new("");
+				g_string_append_printf(cond, 
+						"%s.%s %s %s.%s",
+						mqcp->prop_left->table,
+						mqcp->prop_left->field,
+						mqcp->condition_operator,
+						mqcp->prop_right->table,
+						mqcp->prop_right->field);
+
+				mqcp->condition = g_string_free(cond, FALSE);
+
+				_midgard_core_qb_add_table(builder, mqcp->prop_left->table);
+				_midgard_core_qb_add_table(builder, mqcp->prop_right->table);
+
+				if(!__add_join(&builder->priv->joins, mqcp)) {
+					midgard_query_constraint_private_free(mqcp);
+				}
+			}
+
+			*klass = midgard_reflection_property_get_link_class(mrp, name);
+			(*constraint)->priv->current->table = 
+				midgard_object_class_get_table(*klass);
+
+			g_object_unref(mrp);
+			return TRUE;
+		}
+		
+		g_object_unref(mrp);
+	}
+
+	const gchar *table, *field;
+
+	/* Fixed in Midgard2 already */
+	if(g_str_equal(name, "sitegroup")) {
+		
+		table = midgard_object_class_get_table(*klass);
+		field = "sitegroup";
+	
+	} else if(g_str_equal(name, "guid")) {
+		
+		table = midgard_object_class_get_table(*klass);
+		field = "guid";
+	
+	} else {
+		
+		table = attr->table;
+		field = attr->field;
+	}
+
+	if(table != NULL)
+		(*constraint)->priv->current->table = table;
+	
+	(*constraint)->priv->current->field = field;		
+
+	return TRUE;
+}
+
+gboolean _midgard_core_qb_parse_property(
+		MidgardQueryBuilder *builder, 
+		MidgardQueryConstraint **constraint, 
+		const gchar *name)
+{
+	g_assert(builder != NULL);
+	g_assert(name != NULL);
+
+	MidgardObjectClass *klass =
+		MIDGARD_OBJECT_CLASS(g_type_class_peek(builder->priv->type));
+	(*constraint)->priv->current->table = midgard_object_class_get_table(klass);
+
+	gchar **spltd = g_strsplit(name, ".", 0);
+	guint i = 0;
+
+	if((*constraint)->priv->builder == NULL)
+		(*constraint)->priv->builder = builder;
+
+	/* We can support max 3 tokens */
+	while(spltd[i] != NULL)
+		i++;
+
+	if(i == 1) {
+	
+		g_strfreev(spltd);
+		spltd = NULL;
+
+		/* FIXME , it should be done by some more generic function */
+		GParamSpec *pspec = 
+			g_object_class_find_property(G_OBJECT_CLASS(klass), name);
+
+		if(!pspec) {
+			
+			g_warning("%s is not a member of %s", 
+					name, G_OBJECT_CLASS_NAME(klass));
+							
+			return FALSE;
+		}
+
+		const gchar *stable = 
+			midgard_object_class_get_property_table(klass, name);
+		(*constraint)->priv->pspec = pspec;
+		(*constraint)->priv->current->field = 
+			midgard_object_class_get_property_field(klass, name);
+		(*constraint)->priv->current->table = stable;
+		_midgard_core_qb_add_table(builder, stable);
+		(*constraint)->priv->klass = G_OBJECT_CLASS(klass);
+		(*constraint)->priv->property = name;
+		
+		if(g_str_equal(name, "sitegroup")) 
+			(*constraint)->priv->current->field = "sitegroup";
+			
+		if(g_str_equal(name, "guid")) 
+			(*constraint)->priv->current->field = "guid";
+
+		return TRUE;
+	}
+
+	if(i > 3) {
+		g_warning("Failed to parse '%s'. At most 3 tokens allowed",
+				name);
+		g_strfreev(spltd);
+		
+		return FALSE;
+	}
+
+	gboolean parsed = FALSE;
+	gboolean do_link = TRUE;
+	guint j = 0;
+	while(spltd[j] != NULL) {
+		
+		if(j+1 == i)
+			do_link = FALSE;
+
+		parsed = __set_schema_property_attr(
+				builder, &klass, 
+				constraint, (const gchar *) spltd[j], do_link);
+		
+		if(!parsed) {
+			
+			g_strfreev(spltd);
+			return FALSE;
+		}
+		
+		j++;
+	}
+	
+	if(spltd)
+		g_strfreev(spltd);
+
+	return TRUE;
+}

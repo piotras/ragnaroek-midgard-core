@@ -1,0 +1,71 @@
+# This is example configuration file 
+# Do not create config files with conf extension
+
+[Database]
+
+#Database type, by default MySQL
+Type=MySQL
+
+#Database host ( 'localhost' by default )
+Host=
+
+#Name of the database 
+Name=midgard
+
+#Username for user who is able to connect to database
+Username=midgard
+
+#Password for username
+Password=midgard
+
+#Default language used by application. Unknown by default.
+#DefaultLanguage=pl
+
+#Full path to directory where blobs are stored.
+#By default we set /var/lib/midgard/blobs/DATABASE_NAME
+#/var/lib depends on prefix which was set for midgard-core
+Blobdir=
+
+#Full path to schema file , inlucding filename.
+#By default all schema are read from /usr/share/midgard/schema directory.
+#/usr/share depends on prefix which was set for midgard-core
+#Schema=
+
+#Full path to logfile. In none is defined output will be printed to stdout.
+#There's no default value for log file.
+#Logfile=/var/log/midgard/midgard.log
+
+#Log level.
+#Possible values: error,critical,warning,message,info,debug
+#If You want to limit log messages to specific level , add '+' ( e.g. 'warn+' ).
+#Default level  is 'warn'.
+#Loglevel=message
+
+#Create tables and columns. Boolean value. Default is false
+#TableCreate=true
+
+#Update tables and columns. Set to true if you want to modify already 
+#existing tables and columns. Boolean value. Default is false. 
+#TableUpdate=true
+
+#You shouldn't use configuration below in real life
+
+#Testunit for all types defined in schema. Boolean value. Default is false.
+#TestUnit=true
+
+#Midgard person's username. Login delimeters with sitegroups may be used as well.
+#No default value.
+#MidgardUsername=root
+
+#Midgard person's  password
+#No default value
+#MidgardPassword=password
+
+#Midgard authentication Type
+#Default value is NORMAL auth type
+#AuthType=PAM
+
+#Name of the file used by PAM authentication type
+#Default value is 'midgard'.
+#PamFile=mypamfile
+

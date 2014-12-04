@@ -1,0 +1,11 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: Midgard
+Description: Midgard Framework Library (1.x)
+Requires: glib-2.0 libxml-2.0 dbus-1 dbus-glib-1 openssl  
+Version: 8.09.9.99
+Libs: -L${libdir} -lmidgard -L/usr/lib/i386-linux-gnu -lmysqlclient -lpthread -lz -lm -ldl
+Cflags: -I/usr/include/glib-2.0 -I/usr/lib/i386-linux-gnu/glib-2.0/include -I/usr/include/libxml2 -I/usr/include/dbus-1.0 -I/usr/lib/i386-linux-gnu/dbus-1.0/include   -I${includedir}/midgard -I/usr/include/mysql -DBIG_JOINS=1  -fno-strict-aliasing -DTAOCRYPT_DISABLE_X86ASM  -g -DNDEBUG
