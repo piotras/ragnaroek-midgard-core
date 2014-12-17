@@ -1,4 +1,4 @@
-%define major_version 8.09.9.99
+%define major_version 8.10.0
 
 %if 0%{?suse_version}
 %define devel_requires glib2-devel >= 2.12, libxml2-devel >= 2.6, dbus-1-devel, dbus-1-glib-devel, mysql-devel >= 5.0, libopenssl-devel

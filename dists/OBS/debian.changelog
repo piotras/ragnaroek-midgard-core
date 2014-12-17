@@ -1,3 +1,9 @@
+midgard-core (1:8.10.0-1) unstable; urgency=low
+
+  * New upstream
+
+ -- Piotr Pokora <piotrek.pokora@gmail.com>  Wed, 17 Dec 2014 11:07:53 +0200
+
 midgard-core (1:8.9.9.2-1) unstable; urgency=low
 
   * New upstream

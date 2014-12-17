@@ -1,5 +1,5 @@
 PROJECT_NAME           = midgard-core
-PROJECT_NUMBER         = 8.09.9.99
+PROJECT_NUMBER         = 8.10.0
 INPUT                  = .
 RECURSIVE              = YES
 OUTPUT_DIRECTORY       = doc

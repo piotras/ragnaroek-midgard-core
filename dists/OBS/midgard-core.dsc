@@ -1,6 +1,6 @@
 Format: 1.0  
 Source: midgard-core  
-Version: 1:8.9.9.99
+Version: 1:8.10.0
 Binary: 
 Maintainer: Piotr Pokora <piotrek.pokora@gmail.com>  
 Architecture: 

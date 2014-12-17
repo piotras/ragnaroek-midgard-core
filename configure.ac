@@ -10,20 +10,24 @@ dnl If the version contains user visible changes then you should
 dnl have updated the NEWS file. Remember also to test the release
 dnl before committing.
 dnl
-AC_INIT([midgard-core],[8.09.9.99])
+AC_INIT([midgard-core],[8.10.0])
+AC_PREREQ(2.50)
+AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_SRCDIR(src/midgard.c)
 
 dnl Automake is needed for the build system.
 dnl
-AM_INIT_AUTOMAKE
+AM_INIT_AUTOMAKE([-Wno-portability -Wall])
 AM_MAINTAINER_MODE
+
+LT_INIT
+
+AC_PROG_CC(gcc cc)
+AC_LANG(C)
 
 AM_PROG_LEX
 AC_PROG_YACC
-AC_PROG_CC(gcc cc)
-AM_PROG_CC_C_O
-AC_LANG(C)
 
 dnl Checks for programs.
 AM_PROG_LIBTOOL
