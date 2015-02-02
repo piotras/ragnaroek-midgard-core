@@ -505,8 +505,6 @@ gboolean _nodes2object(GObject *object, xmlNode *node, gboolean force)
 	xmlNode *cur = NULL;
 	GObject *prop_object;
 	gchar *nodeprop = NULL;
-	xmlChar *decoded;
-	xmlParserCtxtPtr parser;
 	MgdObject *mobject = NULL;
 	MgdObject *lobject = NULL;
 	MidgardReflectionProperty *mrp = NULL;
@@ -640,16 +638,7 @@ gboolean _nodes2object(GObject *object, xmlNode *node, gboolean force)
 				switch (pspec->value_type) {
 				
 					case G_TYPE_STRING:
-						parser = xmlNewParserCtxt();
-						decoded = 
-							xmlStringDecodeEntities(parser,
-									(const xmlChar *) nodeprop, 
-									XML_SUBSTITUTE_REF, 
-									0, 0, 0);
-						g_value_set_string(&pval, 
-								(gchar *)decoded);
-						g_free(decoded);
-						xmlFreeParserCtxt(parser);
+						g_value_set_string(&pval, (gchar *)nodeprop);
 						break;
 
 					case G_TYPE_INT:
