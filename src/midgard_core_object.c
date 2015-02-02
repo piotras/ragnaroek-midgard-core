@@ -52,7 +52,6 @@ static void _write_nodes(GObject *object, xmlNodePtr node)
 	GValue pval = {0, }, *lval;
 	GString *gstring;
 	gchar *strprop = NULL;
-	xmlChar *escaped;
 	guint i;
 	xmlNodePtr op_node = NULL;
 	const gchar *linktype;
@@ -240,16 +239,14 @@ static void _write_nodes(GObject *object, xmlNodePtr node)
 					if(!strprop)
 						strprop = g_strdup("");
 					
-					/* Create node */
-					escaped = xmlEncodeEntitiesReentrant(
-							NULL, (const xmlChar*)strprop);
+					/* Create text node */
+					/* Encoding is done transparently by libxml */
 					xmlNewTextChild(node, NULL,
 							BAD_CAST pspec[i]->name,
-							BAD_CAST escaped);
+							BAD_CAST strprop);
 					
 					g_free(linkguid);
 					g_free(strprop);
-					g_free(escaped);
 					g_object_unref(mc);	
 				}
 				g_value_unset(&pval);
@@ -264,11 +261,9 @@ static void _write_nodes(GObject *object, xmlNodePtr node)
 				strprop = g_value_dup_string(&pval);
 				if(!strprop)
 					strprop = g_strdup("");
-				escaped = xmlEncodeEntitiesReentrant(
-						NULL, (const xmlChar*)strprop);
 				xmlNewTextChild(node, NULL, 
 						BAD_CAST pspec[i]->name,
-						BAD_CAST escaped);
+						BAD_CAST strprop);
 			         
 				/* This is commented because I have no idea how to use CDATA
 				 * block between property tags. And more, CDATA is not 
@@ -283,7 +278,6 @@ static void _write_nodes(GObject *object, xmlNodePtr node)
 				xmlAddChild(node, cdatanode);
 				*/
 				g_free(strprop);
-				g_free(escaped);
 				break;
 
 			case G_TYPE_INT:
